@@ -19,6 +19,20 @@ After generating the requested deliverables, stay interactive — answer follow-
 
 ---
 
+## Execution Checklist
+
+When executing this skill, mentally maintain or explicitly write down the following checklist to ensure all critical steps are followed:
+
+- [ ] **Intake & Verification**: Did I check if only one repo was provided and ask for others?
+- [ ] **Deliverables Check**: Did I ask the user which of the 4 deliverables they want before starting?
+- [ ] **Component Discovery**: Have I mapped directories to logical components and announced them?
+- [ ] **Deep Parse**: Did I extract framework, infra, and connections for each component?
+- [ ] **Model Assembly**: Have I resolved cross-component connections (e.g. matching env vars to services)?
+- [ ] **Output Generation**: Have I generated the specific files the user requested, including direct draw.io URLs if diagrams were requested?
+- [ ] **Q&A Handoff**: Did I prompt the user for interactive questions after delivery?
+
+---
+
 ## Phase 1 — Intake & Role Inference
 
 ### Accepting Repos
