@@ -40,19 +40,63 @@ point an actual hosting-platform action is required — see "When Platform Detec
 
 ---
 
+## Hard Stops — Non-Negotiable, Never Skip These
+
+These two checkpoints are blocking. Do not proceed past them on inferred consent, on the assumption
+the user "probably wants this," or because the rest of the workflow is already in motion. Each one
+requires an explicit reply from the user, sent as their own separate message, before continuing.
+
+**A checkpoint question is not satisfied by mentioning the same information inside a summary after the
+fact.** "Drafted the description from the `develop...tester` diff" is a statement, not a question, and
+stating it does not fulfill Hard Stop 1 — even if the branch names are technically present in the
+text. The checkpoint requires literally asking and then stopping, before the diff/description exist at
+all. Likewise, "if you want, I can open the PR next" is an offer, not a yes/no question, and does not
+satisfy Hard Stop 2 — do not use that phrasing or anything like it.
+
+**Hard Stop 1 — Branch confirmation, before any diff is computed (Generation Mode only).**
+`SOURCE_BRANCH` and `BASE_BRANCH` are resolved to *defaults* in Step 2 (current checkout for source,
+merge-base ancestry for base). A default is not a decision. **The moment both branches are resolved,
+stop.** Send a message containing only the confirmation question — nothing else, no diff output, no
+`PR_DESCRIPTION.md`, no other tool calls in that same response — e.g. "I'll write this PR description
+for `branch-two` into `main` — use these, or would you like different ones?" Then end the turn and
+wait. Steps 3 onward (diffing, gathering context, writing the description) may only begin in a later
+turn, after the user's reply arrives as its own message. **Exception:** if the user's original request
+already explicitly named *both* branches (e.g. "write a PR description for merging branch-one against
+main"), there is nothing left to confirm — skip straight to validation and continue in the same turn.
+But if either branch is a default rather than something the user stated, the stop-and-wait is
+mandatory, with no exceptions for confidence, obviousness, or time already spent.
+
+**Hard Stop 2 — Publish confirmation, before any create/update/close of the actual PR (Generation Mode
+only).** Writing `PR_DESCRIPTION.md` is not consent to publish it. Once Step 7 is done, the response
+must end with a literal yes/no question naming both branches — e.g. "Do you want to merge `branch-two`
+into `main` right now (yes/no)?" — and nothing after it. No platform detection, no PR-existence check,
+no create/update command may run in that same response, no matter how the rest of the draft turned
+out. Only an explicit affirmative arriving in the user's *next* message (e.g. "yes", "go ahead", "do
+it") authorizes Step 8. The absence of a "no," moving on to another topic, or the conversation simply
+continuing is **not** consent — if the next message doesn't clearly answer the question, ask again
+rather than proceeding.
+
+**Direct-Action Mode is the one exception to Hard Stop 2** — there, the user's own request ("open a PR
+with description 'X'", "close PR #42") already *is* the explicit instruction to act, so no further
+publish confirmation is needed on top of it. Hard Stop 1 still applies to Direct-Action create actions
+whenever a branch is defaulted rather than stated (see Step 2 in that mode).
+
+---
+
 ## Default Behavior & Routing
 
 | Request type | Mode | Action |
 |---|---|---|
 | "Write/draft/generate a PR description" | Generation | Analyze diff → write `PR_DESCRIPTION.md`, report path, stop |
-| "Create/open the PR" (no inline description) | Generation | Analyze diff → write description → ask to confirm → detect platform → create PR |
+| "Create/open the PR" (no inline description) | Generation | Analyze diff → write description → **Hard Stop 2** → detect platform → create PR |
 | "Open a PR with description 'X'" | **Direct-action** | Skip diff analysis → detect platform → use 'X' as body → create PR |
 | "Update my PR description to 'X'" | **Direct-action** | Skip diff analysis → detect platform → patch open PR body to 'X' |
 | "Edit my PR title to 'X'" | **Direct-action** | Skip diff analysis → detect platform → patch open PR title to 'X' |
 | "Close/abandon/decline my PR" | **Direct-action** | Skip diff analysis → detect platform → close the open PR |
 | "Add reviewers/labels" | **Direct-action** | Skip diff analysis → detect platform → apply changes to open PR |
 
-Never auto-publish without user intent. After writing `PR_DESCRIPTION.md` always ask "should I create the PR right now (yes/no)?" as a follow-up.
+Never auto-publish without user intent. See Hard Stop 2 — after writing `PR_DESCRIPTION.md`, the
+"should I create the PR right now (yes/no)?" question is blocking, not a rhetorical follow-up.
 
 ---
 
@@ -116,11 +160,12 @@ git fetch origin --quiet
 Stop and surface errors; never continue with stale refs. No hosting CLI check happens here — that's
 deferred to the platform-detection trigger points above.
 
-### Step 2 — Determine the Source Branch, Then Confirm the Base Branch
+### Step 2 — Resolve Source and Base Branches, Then Confirm Both Together
 
 Base-branch resolution is fully platform-agnostic and never hardcodes a branch name (not even
-`main`/`master`). This step also resolves the **source branch** — the branch whose changes are being
-described/merged — which is not always the branch currently checked out locally.
+`main`/`master`). This step resolves **both** branches — the source (whose changes are being
+described/merged) and the base (what it's being merged into) — and confirms them as a single pair,
+per Hard Stop 1. Never confirm one without the other; a partial confirmation is not the checkpoint.
 
 **2a. Resolve `SOURCE_BRANCH`.**
 
@@ -130,15 +175,14 @@ described/merged — which is not always the branch currently checked out locall
   `branch-two`), set `SOURCE_BRANCH` to the named branch directly. **Never run `git checkout` or
   `git switch` to make this true** — every subsequent command references `origin/$SOURCE_BRANCH`
   by name, so the branch never needs to be locally checked out at all.
-- If the user names both a source and a base explicitly (e.g. "merging branch-one against main"),
-  both are known immediately — skip straight to 2c (validation); 2b's candidate computation and
-  confirmation prompt are unnecessary since nothing needs to be inferred.
 
-**2b. Compute the candidate base via merge-base ancestry (only when the base wasn't stated explicitly).**
+**2b. Resolve `BASE_BRANCH`.**
 
-`SOURCE_BRANCH`'s true parent is whichever other branch shares the *most recent* common ancestor with
-it — not necessarily the repo's default branch. This correctly handles stacked branches (e.g.
-`branch-two` forked from `branch-one`, which forked from `main`):
+- Override: if the user stated the base explicitly, use it directly.
+- Default: otherwise, compute the candidate via merge-base ancestry. `SOURCE_BRANCH`'s true parent is
+  whichever other branch shares the *most recent* common ancestor with it — not necessarily the
+  repo's default branch. This correctly handles stacked branches (e.g. `branch-two` forked from
+  `branch-one`, which forked from `main`):
 
 ```bash
 git for-each-ref refs/remotes/origin --format='%(refname:short)' | while read -r ref; do
@@ -151,19 +195,28 @@ done | sort -rn | head -1
 
 The top result's ref (after stripping `origin/`) is the **candidate base**.
 
-Present the candidate to the user and let them override — always, before computing scope. State it
-plainly, e.g.:
+**2c. Confirm — Hard Stop 1.**
 
-> "`branch-two`'s nearest parent looks like `branch-one` — I'll use that as the base unless you want
-> a different one (e.g. `main`)."
+- If the user's original request already explicitly named **both** `SOURCE_BRANCH` and `BASE_BRANCH`
+  (e.g. "write a PR description for merging branch-one against main"), there's nothing to confirm —
+  skip straight to validation (2d).
+- Otherwise, **at least one branch is a default**, and confirmation is mandatory before any diff runs.
+  Send a response containing **only** this question — no diff, no scope computation, no
+  `PR_DESCRIPTION.md`, nothing else in the same turn:
 
-Wait for confirmation or an override before proceeding to Step 3.
+  > "I'll write this PR description for `branch-two` into `main` — its nearest parent looked like
+  > `branch-one`, but I'm using `main` since you asked for it. Use these, or would you like different
+  > ones?"
 
-**Edge cases**: 
-1. If the source branch annd the base branch are the same, stop and inform the user — "The source branch and base branch are identical; there's nothing to diff." Do not proceed further.
-2. If the user overrides the base branch or source branchto a branch that does not exist on the remote, stop and inform the user — "The base branch you specified does not exist on the remote; please check the name and try again." Do not proceed further.
+  or, when both are pure defaults:
 
-**2c. Validate the chosen base against `SOURCE_BRANCH` — whether it came from 2a, 2b, or a user override.**
+  > "You're on `branch-two`, and its nearest parent looks like `branch-one`. I'll write the PR
+  > description for `branch-two` into `branch-one` — use these, or would you like different ones?"
+
+  **End the turn immediately after asking.** Steps 2d and 3 do not run until the user's reply arrives
+  as a separate message — not later in the same response, not after a pause, not implied by silence.
+
+**2d. Validate the chosen pair — whether from 2a/2b defaults, a partial override, or a full user override.**
 
 Two failure conditions must be checked and surfaced clearly; do not proceed to Step 3 if either fires:
 
@@ -190,7 +243,6 @@ fi
 - **Failure 2** covers the "merge main onto branch-two" case — asking to diff a branch that's behind
   against one that's ahead. Report this plainly and ask the user to confirm direction rather than
   guessing.
-
 
 Only once the base passes validation do `SOURCE_BRANCH` and `BASE_BRANCH` get set and Step 3 proceed.
 
@@ -252,17 +304,22 @@ git log origin/${BASE_BRANCH}..origin/${SOURCE_BRANCH} --format="%h %s%n%b" | he
 
 ### Step 7 — Write the Description
 
-Use the template below. Write to `PR_DESCRIPTION.md` and report the path. If this document already exists in the directory, overwrite it. Then ask, naming both branches explicitly: "Do you want to merge `$SOURCE_BRANCH` into `$BASE_BRANCH` right now (yes/no)?"
+Use the template below. Write to `PR_DESCRIPTION.md` and report the path. Then ask, naming both
+branches explicitly, as a literal yes/no question: "Do you want to merge `$SOURCE_BRANCH` into
+`$BASE_BRANCH` right now (yes/no)?" **Do not phrase this as a soft offer** — "if you want, I can open
+the PR next" or similar is not the required question and does not count as asking. **This is Hard
+Stop 2 — end the turn here and wait for the user's reply.** Do not call Platform Detection, do not
+check for an open PR, and do not run any create/update command in the same turn as writing the
+description, regardless of how confident the description is or how clearly the user's original
+request implied they wanted it published.
 
-### Step 8 (Publish only, triggered by "yes") — Detect Platform, Then Check for Existing Open PR/MR
+### Step 8 (Publish only, triggered by an explicit "yes" in a later message) — Detect Platform, Then Check for Existing Open PR/MR
 
-Only reached if the user confirms they want to open the PR. Run Platform Detection (above), then see
+Only reached once the user has explicitly replied "yes" (or equivalent affirmative) to the Step 7
+question, in a message of their own. Run Platform Detection (above), then see
 `references/${PLATFORM}.md → PR Detection`. Closed/merged PRs are never treated as active targets.
 Use the same `$SOURCE_BRANCH` and `$BASE_BRANCH` resolved and validated in Step 2 when creating the
 PR — regardless of what branch is currently checked out locally.
-
-
-**Edge Case : there already exists a PR for this source branch** — if the user is trying to create a new PR for a source branch that already has an open PR, surface this to the user and ask if they want to update the existing PR instead of creating a new one. If they choose to update, switch to Direct-Action Mode and follow the steps for updating the PR description. IF they select no then close the process and inform the user that they can either update the existing PR or close it before creating a new one.
 
 ---
 
@@ -271,7 +328,7 @@ PR — regardless of what branch is currently checked out locally.
 Activated when the user provides an **explicit inline description or title**, or requests a **close/abandon/decline** action, or asks to manage reviewers/labels.
 
 **When to enter Direct-Action Mode:**
-- The user's message contains quoted or explicit description text (e.g. `"with the description 'Hello'" or points to the location of the description md file`)
+- The user's message contains quoted or explicit description text (e.g. `"with the description 'Hello'"`)
 - The user asks to close, abandon, decline, cancel, or delete the PR
 - The user asks to add reviewers or labels only (no description change implied)
 
@@ -279,13 +336,16 @@ Activated when the user provides an **explicit inline description or title**, or
 
 1. **Fetch** — `git fetch origin --quiet` (always required; no hosting CLI check yet).
 2. **Resolve source and base branches (create only)** — for a *create* action, resolve `SOURCE_BRANCH`
-   and `BASE_BRANCH` exactly as in Step 2a–2c: default `SOURCE_BRANCH` to the current checkout unless
-   the user explicitly names a different branch to open the PR *for* (e.g. "create a PR with the
-   description 'hello' to merge branch-two with main" while sitting on `branch-one` — here
-   `SOURCE_BRANCH=branch-two`, `BASE_BRANCH=main`, and the local checkout stays on `branch-one`
-   throughout). Never run `git checkout`/`git switch` to satisfy this. Validate per 2c before
-   proceeding. Skip this step entirely for close/update/reviewers/labels-only actions, since those
-   target an already-existing PR and don't need a base.
+   and `BASE_BRANCH` exactly as in Step 2a–2d: default `SOURCE_BRANCH` to the current checkout unless
+   the user explicitly names a different branch to open the PR *for*. If the user's request named
+   **both** branches explicitly (e.g. "create a PR with the description 'hello' to merge branch-two
+   with main" while sitting on `branch-one` — here `SOURCE_BRANCH=branch-two`, `BASE_BRANCH=main`, and
+   the local checkout stays on `branch-one` throughout), nothing needs confirming — validate (2d) and
+   proceed. If either branch was left to default instead of being named, **Hard Stop 1 still
+   applies**: state both resolved branches and wait for the user's reply before executing the create
+   action. Never run `git checkout`/`git switch` to satisfy any of this. Skip this whole step for
+   close/update/reviewers/labels-only actions, since those target an already-existing PR and don't
+   need a base.
 3. **Skip diff/context/commit-log steps** — do NOT run diff, stat, context, or commit-log commands;
    Direct-Action Mode never analyzes the diff.
 4. **Detect platform** — run Platform Detection now, immediately before the action, since this is the
@@ -296,22 +356,12 @@ Activated when the user provides an **explicit inline description or title**, or
    (e.g. "close the PR for branch-two"); if none is named, use the currently checked-out branch.
 6. **Execute the action** using the command from `references/${PLATFORM}.md`:
 
-
 | Intent | Command section to use |
 |---|---|
 | Create new PR with inline description | `Creating & Updating PRs → Create` |
 | Update open PR description/title | `Creating & Updating PRs → Update` |
 | Close/abandon/decline PR | `Closing PRs` |
 | Add reviewers/labels | `Creating & Updating PRs → reviewers/labels` |
-
-**Edge case: Insufficient Information in the prompt**
-* For a Direct action mode Create prompt there are 3 parts -
-1. Description (if this is missing, try search for a PR_DESCRIPTION.md in the ./ folder and use it as defualt as found, if not found then exit and ask the user to provide the description)
-2. Source branch (if not specified then take the current checkout branch as the default)
-3. Base Branch (if not specifed take the parent branch of the currently checked out branch as the default one)
-commands to check the diff and determine base and source branch are already specifed above in this skill file.
-* For a direct action mode Delete prompt, take the PR in the source branch as the default if something else is not specified, if there is no PR to close, exit and inform the user. Commpand for this are specified in the respective references/${PLATFORM}.md → PR Detection.
-* For a Direct action Update prompt, take the PR in the source branch as the default if something else is not specified, if there is no PR to update, exit and inform the user. Commpand for this are specified in the respective references/${PLATFORM}.md → PR Detection
 
 **Inline description extraction rules:**
 - Use text inside quotes as the exact PR body (preserve as-is, no reformatting).
@@ -405,17 +455,20 @@ included, place it inside the Changes section, directly under the table.
 8. **Detecting the platform too early** — never run Platform Detection during drafting; only at the confirmed-publish or direct-action trigger points.
 9. **Skipping base validation** — never diff against a base with no shared history, or in the wrong direction, without surfacing the problem to the user first.
 10. **Switching the local checkout** — never run `git checkout`/`git switch` to satisfy a named source or base branch that differs from what's currently checked out; always reference `origin/$SOURCE_BRANCH` and `origin/$BASE_BRANCH` directly instead.
+11. **Proceeding to diff on defaulted branches without confirming (Hard Stop 1)** — if either `SOURCE_BRANCH` or `BASE_BRANCH` came from a default rather than the user's own words, confirm both together before Step 3 runs.
+12. **Publishing without an explicit "yes" (Hard Stop 2)** — writing `PR_DESCRIPTION.md` is never itself consent; treat Step 7's question as blocking and end the turn there in Generation Mode.
 
 ---
 
-## Final Execution Checklist (Refer before executing)
+## Output
 
 **First: determine which mode applies.**
 
 ### Generation Mode (default)
 1. Fetch (Step 1).
-2. Resolve `SOURCE_BRANCH` (default: current checkout, or the branch the user names explicitly),
-   then resolve base branch via merge-base ancestry, confirm/override with user, validate (Step 2).
+2. Resolve `SOURCE_BRANCH` and `BASE_BRANCH` (defaults: current checkout / merge-base ancestry, or
+   whatever the user named explicitly). If either is a default rather than user-stated, present both
+   together and wait for the user's reply — **Hard Stop 1**. Then validate (Step 2).
 3. Compute scope from `origin/BASE_BRANCH...origin/SOURCE_BRANCH` (Step 3).
 4. Note unpushed local commits if any and `SOURCE_BRANCH` is the current checkout (Step 3 note).
 5. Note uncommitted changes if any and `SOURCE_BRANCH` is the current checkout (Step 4).
@@ -432,19 +485,22 @@ EOF
 ```
 
 Report the file path. Ask the user, naming both branches: "Do you want to merge `$SOURCE_BRANCH` into
-`$BASE_BRANCH` right now (yes/no)?" **Do not detect the platform until the user says yes.**
+`$BASE_BRANCH` right now (yes/no)?" — **Hard Stop 2. End the turn here.** Do not detect the platform,
+check for an open PR, or run any create/update command until the user's next message explicitly says
+yes.
 
-11. **Only when the user says yes**: run Platform Detection, check for an existing open PR (Step 8),
-    then use the create or update command from `references/${PLATFORM}.md`, passing the same
-    `$SOURCE_BRANCH`/`$BASE_BRANCH` resolved and validated in Step 2. Never switch the local checkout
-    to do this.
+11. **Only once that explicit "yes" arrives, in its own message**: run Platform Detection, check for
+    an existing open PR (Step 8), then use the create or update command from `references/${PLATFORM}.md`,
+    passing the same `$SOURCE_BRANCH`/`$BASE_BRANCH` resolved and validated in Step 2. Never switch the
+    local checkout to do this.
 12. Be ready to iterate based on user feedback.
 
 ### Direct-Action Mode
 1. Fetch (`git fetch origin --quiet`).
-2. Resolve + confirm + validate `SOURCE_BRANCH`/`BASE_BRANCH`, but only for a create action; skip for
-   close/update/reviewers/labels-only. `SOURCE_BRANCH` defaults to the current checkout but is
-   overridden whenever the user names a different branch — the local checkout never changes either way.
+2. Resolve `SOURCE_BRANCH`/`BASE_BRANCH`, but only for a create action; skip for
+   close/update/reviewers/labels-only. If the user's request named both branches explicitly, validate
+   and proceed. If either was left to default, Hard Stop 1 still applies — confirm both before
+   executing the create. The local checkout never changes either way.
 3. Skip diff/stat/context/commit-log commands entirely.
 4. Detect platform now, immediately before acting.
 5. Check for open PR, targeting whichever branch the user named (or the current checkout if none was named).
