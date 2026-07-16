@@ -1496,420 +1496,263 @@ Which diagram edges were inferred rather than confirmed?
 
 ---
 
-# 3. Autonomous Test Case Generator
+# 3. Test Case Generator
 
-**Source and installed name:** [`generating-test-cases/`](./generating-test-cases/)
+## Overview
 
-## What it does
+Generates, executes, and verifies complete test suites for any function or feature. Given a target, it autonomously discovers your project's architecture, drafts a test plan for your approval, writes the suite, runs it, and self-corrects until coverage targets are met — all without touching your source code.
 
-The Autonomous Test Case Generator discovers the target project's architecture and testing conventions, creates a structured test plan, waits for approval, generates tests, executes them, measures coverage, and iteratively improves the suite.
+---
 
-It is designed for:
+## When to Use This Skill
 
-- a specific function or method;
-- a class;
-- a module;
-- an endpoint;
-- an integration flow;
-- a complete feature;
-- edge-case verification;
-- and coverage-focused test expansion.
+### In-Scope Requests
+- "Write tests for `calculate_discount()`"
+- "Generate a test suite for the auth module"
+- "Hit 90% coverage on `parser.py`"
+- "Add edge case tests for the payment flow"
 
-## Scope gate
+### Out-of-Scope Requests
+- Debugging existing tests
+- Explaining what a function does
+- Refactoring source code
 
-The skill activates only when the request is explicitly about tests.
+If the request is ambiguous, the skill will ask: *"Do you want me to generate new test cases for this, or do you need help with something else?"*
 
-In-scope examples:
+---
 
-```text
-Generate tests for this function.
-```
-
-```text
-Create integration tests for the checkout flow.
-```
-
-```text
-Improve test coverage for this module.
-```
-
-When the request is unrelated or ambiguous, the skill asks one question to determine whether new tests are desired.
-
-## Two execution modes
+## Execution Modes
 
 ### Unit Mode
-
-Used when a specific function or method is targeted.
-
-Behavior:
-
-- isolates the unit;
-- mocks external boundaries;
-- focuses on branches, inputs, outputs, errors, and side effects;
-- uses the idiomatic unit-testing framework for the detected language.
+Activated when a specific function or method is targeted. Isolates the unit under test and mocks all external dependencies.
 
 ### Integration / Feature Mode
+Activated when a feature, workflow, or whole module is targeted. Traces cross-file references, matches infrastructure patterns, and verifies combined multi-component behaviour.
 
-Used when a workflow, endpoint, module, or complete feature is targeted.
+The skill selects the correct mode automatically based on your request.
 
-Behavior:
+---
 
-- traces cross-file dependencies;
-- follows existing fixtures and test infrastructure;
-- verifies multi-component behavior;
-- still isolates real external network, disk, database, or API effects unless the project already provides a safe test environment.
+## Workflow
 
-## Mandatory approval workflow
+This skill runs as a mandatory two-stage workflow. No code is written until you approve the plan.
 
-This skill is intentionally a two-stage workflow.
+### Stage 1 — Discovery & Plan
 
-### Stage 1: discovery and plan
+1. Scans manifests and the existing test layout to detect language, framework, and conventions
+2. Selects Unit or Integration / Feature Mode
+3. Isolates the target function, class, or module
+4. Identifies happy paths, structural boundaries, and mathematical/combinatorial test matrices
+5. Presents a structured test plan with concrete inputs and expected outcomes
+6. **Pauses for your approval — nothing is written to disk until you confirm**
 
-The agent:
+The plan includes: discovered architecture, target mode, component branch map, representative examples with expected outcomes, MC/DC or pairwise strategy where applicable, total planned test count, and target coverage.
 
-1. prints the execution checklist;
-2. scans manifests and the existing test layout;
-3. chooses Unit or Integration/Feature Mode;
-4. isolates the target;
-5. identifies happy paths;
-6. identifies structural boundaries;
-7. creates mathematical or combinatorial test matrices;
-8. presents a structured test plan;
-9. pauses for approval.
-
-The plan includes:
-
-- discovered architecture;
-- target mode;
-- component workflow or branch map;
-- concrete happy-path examples with expected outcomes;
-- concrete edge cases with expected outcomes;
-- MC/DC or pairwise strategy where applicable;
-- total planned test count;
-- target coverage.
-
-### Stage 2: generation and verification
-
-Only after explicit approval, the agent:
-
-1. incorporates requested plan changes;
-2. writes the test suite;
-3. runs the native test command;
-4. records passed, failed, and skipped counts;
-5. runs coverage;
-6. adds tests when coverage is below target;
-7. repeats for a maximum of three total iterations;
-8. writes the full report file;
-9. prints a concise completion summary.
-
-Approval phrases include:
-
+**What counts as approval:**
 ```text
 Proceed.
 ```
-
 ```text
-The plan looks correct. Generate and run the tests.
+Looks good, go ahead.
+```
+```text
+Approved — generate and run the tests.
 ```
 
-```text
-Approved—continue to implementation.
-```
+A question, a requested change, or an additional edge case is **not** treated as approval. The skill incorporates the feedback, re-presents the updated plan, and pauses again.
 
-A question, requested modification, or additional edge case is not treated as approval. The skill updates and re-presents the plan first.
+### Stage 2 — Generation & Verification
 
-## Project discovery
+1. Incorporates any plan changes you requested
+2. Writes the complete test suite to disk
+3. Runs the native test command and records pass / fail / skip counts
+4. Runs the coverage tool
+5. Appends new tests if coverage is below target — up to **3 iterations total**
+6. Writes the full execution report file
+7. Prints a concise summary in chat
 
-The skill scans for ecosystem manifests and existing test conventions, including:
+---
 
-- `package.json`;
-- `requirements.txt`;
-- `pyproject.toml`;
-- `pom.xml`;
-- `build.gradle`;
-- `go.mod`;
-- `Cargo.toml`;
-- `*.csproj`;
-- `Gemfile`;
-- `composer.json`;
-- and equivalent project files.
+## Supported Languages & Frameworks
 
-It also looks for an optional project override file:
-
-```text
-.test-agent-config.md
-```
-
-Use this file to record:
-
-- custom fixture rules;
-- required test commands;
-- unusual coverage commands;
-- legacy constraints;
-- mock conventions;
-- database setup;
-- project-specific mathematical rules.
-
-## Framework selection
-
-The skill selects the standard framework for the detected ecosystem rather than asking by default.
-
-| Ecosystem | Typical framework |
-|---|---|
-| Python | `pytest` |
-| JavaScript / TypeScript | Jest or Vitest, based on project conventions |
+| Language | Framework |
+|----------|-----------|
+| Python | pytest |
+| JavaScript / TypeScript | Jest / Vitest |
 | Java | JUnit 5 |
-| Go | built-in `testing` |
+| Go | `testing` (stdlib) |
 | C++ | Google Test |
-| Rust | ecosystem-standard test tooling |
-| .NET | project-standard .NET test framework |
-| Ruby | RSpec or existing project standard |
-| Other | existing project convention or community standard |
+| Rust | `cargo test` |
+| .NET / C# | xUnit |
+| Ruby | RSpec |
+| PHP | PHPUnit |
 
-Existing conventions take priority over generic defaults.
+Other ecosystems are supported — the skill selects the de-facto standard for whatever it detects.
 
-## Test design techniques
+---
 
-### Arrange, Act, Assert
+## What the Skill Enforces Automatically
 
-Every generated test follows and comments the AAA structure:
+Every generated test suite is guaranteed to comply with the following, with no extra configuration required:
 
-```text
-Arrange
-Act
-Assert
-```
+- **AAA Pattern** — every test is structured into Arrange, Act, and Assert blocks with comments
+- **Naming Convention** — every test name encodes the unit under test, the condition, and the expected outcome, in the idiomatic style of the detected language
+- **MC/DC Coverage** — boolean logic is covered using Modified Condition/Decision Coverage, not brute-force permutations
+- **Parameterized Testing** — repeated cases are collapsed into parameterized matrices, not copy-pasted blocks
+- **I/O Mocking** — all external boundaries (network, disk, DB, APIs) are mocked using the framework's native mocking library; no real I/O is executed
+- **State Teardown** — any global state or DB mutations are rolled back after every test
+- **Async Handling** — asynchronous code is handled with the correct event loop and synchronisation primitives
+- **Determinism** — system clocks and random number generators are frozen where used
+- **Public Interface Only** — private methods are never tested directly; only their effects through public callers
+- **Assertion Precision** — all assertions target exact values, specific error types, and precise state changes
+- **Source Immutability** — your source code is never modified
 
-### Parameterized tests
+---
 
-The skill avoids repetitive individual test blocks and uses the ecosystem's parameterization features.
+## Naming Conventions
 
-### MC/DC
-
-For complex boolean decisions, the skill uses Modified Condition/Decision Coverage to prove that each condition independently changes the decision outcome.
-
-It does not blindly generate all `2^n` combinations. It aims for a smaller independent-condition set and verifies actual coverage rather than assuming the theoretical minimum is sufficient.
-
-### Pairwise / all-pairs testing
-
-For large combinations of data fields or options, the skill uses pairwise matrices to cover interactions without combinatorial explosion.
-
-### Structural boundaries
-
-Examples include:
-
-- null or `None`;
-- empty arrays, objects, maps, and strings;
-- zero;
-- negative values;
-- upper and lower bounds;
-- missing fields;
-- malformed payloads;
-- duplicate values;
-- invalid enum members;
-- Unicode;
-- large inputs.
-
-### External boundary isolation
-
-When code interacts with network, filesystem, databases, queues, APIs, clocks, or other external systems, the skill uses the project's standard mocking tools.
-
-Examples include:
-
-- `unittest.mock` or pytest mocking;
-- Mockito;
-- Jest/Vitest mocks;
-- Go mocking libraries;
-- Google Mock;
-- Rust mock libraries;
-- RSpec doubles;
-- Moq or NSubstitute.
-
-### State teardown
-
-When tests mutate global state, files, or database records, the skill uses teardown fixtures, cleanup, rollback, or transaction isolation.
-
-### Async and concurrency
-
-When code is asynchronous or threaded, the skill configures event loops, awaits operations, and uses synchronization primitives to avoid hangs and race-prone tests.
-
-## Naming conventions
-
-Generated test names encode:
-
-1. the unit under test;
-2. the condition;
-3. the expected result.
-
-Examples:
+Every test name encodes three things: the unit under test, the condition, and the expected outcome — in the idiomatic style of the detected language.
 
 ```text
+# Python / pytest / Go
 test_sort_when_input_empty_returns_empty
 ```
-
 ```text
+// Java / JUnit 5
 sortReturnsEmpty_whenInputIsEmpty
 ```
-
 ```text
+// JavaScript / TypeScript (Jest / Vitest)
 it('returns empty array when input is empty', ...)
 ```
-
 ```text
+// C++ / Google Test
 TEST(SortSuite, ReturnsEmptyWhenInputIsEmpty)
 ```
 
-## Coverage behavior
+---
 
-- Default target: **85% line or statement coverage**
-- A user-supplied target overrides the default.
-- Branch coverage is not pursued unless explicitly requested.
-- The skill makes at most three correction iterations unless another limit is explicitly requested.
-- It records exact pass, fail, and skip counts.
-- It records the final coverage percentage.
-- It identifies missed lines.
-- It explains why uncovered lines remain.
+## Configuration
 
-When the only uncovered lines are genuinely unreachable measurement artifacts—such as a standalone benchmarking entrypoint or hardware-only branch—the report documents them rather than endlessly adding meaningless tests.
+### Coverage Target
+Default target is **85%**. To set a custom target, state it in your prompt:
 
-## Output files
+> "Generate tests for `utils.py` with 95% coverage."
 
-### Test source file
+### Custom Overrides (`.test-agent-config.md`)
+Place a `.test-agent-config.md` file at your workspace root to define project-specific rules — legacy fixture maps, custom mathematical constraints, or framework preferences. The skill reads this silently before planning and applies your overrides automatically.
 
-The file follows ecosystem conventions:
+---
 
-| Ecosystem | Typical file |
-|---|---|
+## Output Contract
+
+### Test File
+Saved alongside your source using the ecosystem's standard naming convention:
+
+| Language | Output Filename |
+|----------|----------------|
 | Python | `test_<source_filename>.py` |
 | Go | `<source_filename>_test.go` |
-| Java | `<ClassName>Test.java` under mirrored `src/test/java` structure |
-| JavaScript / TypeScript | `<name>.test.*`, `<name>.spec.*`, or existing `__tests__/` layout |
-| Other | existing project convention |
+| Java | `<ClassName>Test.java` under `src/test/java/...` |
+| JS / TS | `<name>.test.js` / `<name>.spec.ts` |
 
-The generated file contains real imports based on the repository structure, not placeholder imports.
+### Execution Report
+A detailed `<test_file_basename>.report.md` is written alongside the test file. Contains the full test-by-test results table, coverage breakdown, and missed lines justification. This is the complete record — not printed in full to chat.
 
-### Full execution report
+### Chat Summary
+A short summary is printed in chat once execution completes:
+- Pass / fail / skip counts
+- Final coverage percentage and iterations used
+- Path to the full report file
+- Brief notes on any failing tests (only if applicable)
 
-Written alongside the generated test file:
+### Exception Block
+If execution cannot reach the final stage, the skill emits a structured halt block containing the one-line reason, the technical cause, and the required action to unblock.
 
-```text
-<test_file_basename>.report.md
-```
+---
 
-The report includes:
+## Limitations
 
-- execution mode;
-- test file location;
-- framework and context;
-- total tests;
-- passed, failed, and skipped counts;
-- iterations used;
-- final coverage;
-- a test-by-test expected/actual/result table;
-- coverage summary;
-- missed lines;
-- missed-line justification.
+- **3-iteration cap** on the self-correction loop. If coverage target is not met after 3 runs, the skill stops and documents why in the report.
+- **No source modification** — if the source code has structural issues preventing testability, the skill will flag this but will not refactor it.
+- **Genuinely unreachable lines** (e.g., `if __name__ == '__main__':` blocks, hardware-specific guards) are documented as *Measurement Artifacts* and excluded from the coverage calculation rather than counted as misses.
+- The approval gate at Step 2 is mandatory and cannot be skipped.
 
-### Chat summary
+---
 
-The conversation receives only a concise result and a pointer to the full report, rather than duplicating the entire report.
-
-### Exception block
-
-When execution cannot reach the final stage, the skill emits a structured halt block containing:
-
-- the one-line reason;
-- the technical cause;
-- the required action to unblock execution.
-
-## Source-code immutability
-
-The skill does not modify the target production source file to make tests pass or inflate coverage.
-
-It writes and updates only the generated test artifacts. Any production bug exposed by the tests remains visible as a failure for the developer to address separately.
-
-## Phrase cookbook
+## Phrase Cookbook
 
 ### Unit tests
 
-| Goal | Example phrases | Expected behavior |
-|---|---|---|
-| Basic unit suite | `Use the generating-test-cases skill to create unit tests for calculate_total.` | Detects project conventions and presents a test plan |
-| Target a file/function | `Generate tests for parse_token in src/auth/token.py.` | Isolates the named function |
-| Let agent infer target | `Generate tests for the function in my currently selected file.` | Uses editor/workspace context when unambiguous |
-| Error behavior | `Test all error and validation paths for create_user.` | Plans invalid-input and exception cases |
-| Async function | `Generate tests for this async retry function, including timeout behavior.` | Uses async-aware framework support and mocks |
-| Boundary-heavy function | `Test null, empty, minimum, maximum, overflow, and malformed inputs.` | Adds structural boundaries |
-| Existing style | `Match the repository's current fixtures, naming, and mocking conventions.` | Discovers and follows local patterns |
+| Goal | Example prompt |
+|------|----------------|
+| Basic unit suite | `Generate tests for calculate_total in src/billing.py` |
+| Target a specific function | `Generate tests for parse_token in src/auth/token.py` |
+| Let agent infer target | `Generate tests for the function in my currently selected file` |
+| Error and validation paths | `Test all error and validation paths for create_user` |
+| Async function | `Generate tests for this async retry function, including timeout behavior` |
+| Boundary-heavy function | `Test null, empty, minimum, maximum, overflow, and malformed inputs` |
+| Match existing style | `Match the repository's current fixtures, naming, and mocking conventions` |
 
 ### Integration and feature tests
 
-| Goal | Example phrases | Expected behavior |
-|---|---|---|
-| Endpoint | `Create integration tests for POST /orders.` | Traces route, service, validation, and persistence boundaries |
-| Feature workflow | `Generate feature tests for checkout from cart to payment confirmation.` | Uses Integration/Feature Mode |
-| Multi-module flow | `Test the token refresh workflow across middleware, service, and storage layers.` | Follows cross-file references |
-| Database behavior | `Generate integration tests using the existing transaction rollback fixture.` | Reuses safe project infrastructure |
-| Queue behavior | `Test the order-created event producer and consumer without contacting a real broker.` | Mocks or uses the existing test double |
-| API boundary | `Test the Stripe integration using mocks; never call the real API.` | Enforces I/O isolation |
+| Goal | Example prompt |
+|------|----------------|
+| Endpoint | `Create integration tests for POST /orders` |
+| Feature workflow | `Generate feature tests for checkout from cart to payment confirmation` |
+| Multi-module flow | `Test the token refresh workflow across middleware, service, and storage layers` |
+| Database behavior | `Generate integration tests using the existing transaction rollback fixture` |
+| Queue behavior | `Test the order-created event producer and consumer without contacting a real broker` |
+| API boundary | `Test the Stripe integration using mocks; never call the real API` |
 
 ### Coverage goals
 
-| Goal | Example phrases | Expected behavior |
-|---|---|---|
-| Default target | `Generate and run tests for this module.` | Uses 85% target |
-| Custom line coverage | `Reach at least 95% line coverage for src/pricing.py.` | Uses 95% target |
-| Branch coverage | `Reach 90% branch coverage, not just line coverage.` | Explicitly switches the measurement target |
-| Fill missing paths | `Add tests for the uncovered lines in the coverage report.` | Maps missed lines to new cases |
-| Limit iterations | `Try at most two coverage-improvement iterations.` | Overrides the default maximum of three |
-| Preserve failures | `Run the tests and report production failures without editing source code.` | Leaves production code unchanged |
+| Goal | Example prompt |
+|------|----------------|
+| Default target | `Generate and run tests for this module` |
+| Custom line coverage | `Reach at least 95% line coverage for src/pricing.py` |
+| Branch coverage | `Reach 90% branch coverage, not just line coverage` |
+| Fill missing paths | `Add tests for the uncovered lines in the coverage report` |
+| Limit iterations | `Try at most two coverage-improvement iterations` |
 
 ### Combinatorial testing
 
-| Goal | Example phrases |
-|---|---|
-| Boolean logic | `Use MC/DC for the authorization decision and prove each condition independently changes the result.` |
-| Configuration matrix | `Use pairwise testing for browser, region, payment method, and account tier.` |
-| Parameterization | `Use parameterized tests instead of repetitive test functions.` |
-| Representative plan | `Show representative inputs and expected results before generating code.` |
+| Goal | Example prompt |
+|------|----------------|
+| Boolean logic | `Use MC/DC for the authorization decision and prove each condition independently changes the result` |
+| Configuration matrix | `Use pairwise testing for browser, region, payment method, and account tier` |
+| Parameterization | `Use parameterized tests instead of repetitive test functions` |
 
 ### Plan review and approval
 
 First-turn feedback:
-
 ```text
 Add cases for timezone boundaries, leap years, and daylight-saving transitions, then show the revised plan.
 ```
-
 ```text
 Remove performance tests and keep this a pure unit suite.
 ```
 
-```text
-Use the existing SQLite fixture instead of mocking the repository.
-```
-
 Second-turn approval:
-
 ```text
 Approved. Generate, run, measure coverage, and write the report.
 ```
 
-## What this skill intentionally does not do
-
-- It does not generate test code before presenting the plan.
-- It does not treat clarification or plan feedback as approval.
-- It does not modify production source code.
-- It does not make real network/API/database calls when a mock or safe fixture is required.
-- It does not generate exhaustive `2^n` boolean matrices by default.
-- It does not assume coverage without running the coverage tool.
-- It does not silently hide failed or skipped tests.
-- It does not print the full report into chat when the report file was created.
-- It does not pursue branch coverage unless requested.
-- It does not continue indefinitely beyond the configured iteration limit.
-
 ---
 
+## What This Skill Does Not Do
+
+- Does not generate test code before presenting and receiving approval on the plan
+- Does not treat a question or plan feedback as approval
+- Does not modify production source code
+- Does not make real network, API, or database calls when a mock or safe fixture is required
+- Does not generate exhaustive `2^n` boolean matrices by default
+- Does not assume coverage without running the coverage tool
+- Does not hide failed or skipped tests
+- Does not print the full execution report into chat when the report file was created
+- Does not pursue branch coverage unless explicitly requested
+- Does not continue beyond the configured iteration limit
+- 
 ## Troubleshooting
 
 ### A skill is not discovered
