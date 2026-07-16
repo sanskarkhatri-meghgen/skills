@@ -71,9 +71,12 @@ Only proceed if the request is explicitly about generating new tests.
 
 **CRITICAL DIRECTIVE:** Enforce these constraints autonomously on every generated test suite:
 
-* **I/O Isolation:** **If** the target code interacts with external boundaries (Network, Disk, DB, APIs), you must isolate them using the native mocking library (e.g., `unittest.mock`/`pytest-mock` for Python, `Mockito` for Java, `jest.mock`/`vi.mock` for JavaScript/TypeScript, `gomock`/`testify` for Go, `Google Mock` for C++, `mockall` for Rust, RSpec doubles for Ruby, `Moq`/`NSubstitute` for C#). Never execute real external I/O.
+* **I/O Isolation:** **If** the target code interacts with external boundaries (Network, Disk, DB, APIs), you must isolate them using the native mocking library (e.g., `unittest.mock`/`pytest-mock` for Python, `Mockito` for Java, `jest.mock`/`vi.mock` for JS/TS, `Google Mock` for C++). Never execute real external I/O. **CRITICAL: You are strictly forbidden from writing manual stub classes or dummy implementations. You MUST use the framework's native annotation and mocking syntax (e.g., `@Mock`, `@InjectMocks`, `when()`, `verify()`).**
 * **State Teardown:** **If** the target code mutates global state, database tables, or files, you must wrap the execution in a teardown fixture or transaction rollback. The system state must remain pristine after every test.
 * **Asynchronous Execution:** **If** the target code is asynchronous or spawns threads, you must explicitly handle event loops and synchronization (e.g., `pytest.mark.asyncio`, `sync.WaitGroup`) to prevent hanging execution.
+* **Determinism:** **If** the target code relies on time or randomness, you must freeze system clocks and mock random number generators to ensure idempotent runs.
+* **Public Interface Only:** Test only public methods. Never directly invoke private/protected functions; verify their side effects through public callers.
+* **Assertion Precision:** Assert exact return values, precise state changes, and specific error types. Never use generic/lazy assertions (e.g., `assert is not None`).
 
 ## 3. Local Workspace Overrides (Progressive Disclosure)
 
